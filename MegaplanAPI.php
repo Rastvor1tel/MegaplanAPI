@@ -48,4 +48,37 @@ class MegaplanAPI {
 		}
 	}
 
+	/**
+	 * Получение списка задач
+	 *
+	 */
+	public function getTasks() {
+		$result = [];
+
+		$params = json_encode([
+			"limit" => 5,
+			/*"pageAfter" => [
+				"contentType" => "Task",
+				"id" => 1057029
+			]*/
+		]);
+
+		$headers = [
+			"AUTHORIZATION: Bearer {$this->token}"
+		];
+
+		$link = curl_init("https://gaps2.megaplan.ru/api/v3/task?{$params}");
+
+		curl_setopt($link, CURLOPT_RETURNTRANSFER, 1);
+		curl_setopt($link, CURLOPT_HTTPHEADER, $headers);
+
+		$output = curl_exec($link);
+
+		curl_close($link);
+
+		$result = json_decode($output, true)["data"];
+
+		return $result;
+	}
+
 }
