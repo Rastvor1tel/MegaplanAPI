@@ -2,6 +2,7 @@
 
 class MegaplanAPI {
 	private string $token;
+	private string $url = "https://gaps2.megaplan.ru";
 
 	public function __construct(string $login = "", string $password = "", string $token = "") {
 		if ($token) {
@@ -25,7 +26,7 @@ class MegaplanAPI {
 			"grant_type" => "password"
 		];
 
-		$link = curl_init('https://gaps2.megaplan.ru/api/v3/auth/access_token');
+		$link = curl_init("{$this->url}/api/v3/auth/access_token");
 
 		curl_setopt($link, CURLOPT_RETURNTRANSFER, 1);
 		curl_setopt($link, CURLOPT_POST, 1);
@@ -48,58 +49,112 @@ class MegaplanAPI {
 		}
 	}
 
+	private function requestExec($path) {
+		$headers = [
+			"AUTHORIZATION: Bearer {$this->token}"
+		];
+		$link = curl_init("{$this->url}{$path}");
+		curl_setopt($link, CURLOPT_RETURNTRANSFER, 1);
+		curl_setopt($link, CURLOPT_HTTPHEADER, $headers);
+		$output = curl_exec($link);
+		curl_close($link);
+		$result = json_decode($output, true)["data"];
+		return $result;
+	}
+
 	/**
 	 * Получение списка задач
 	 * @param int $limit
 	 * @return mixed
 	 */
-	public function getTasks($limit = 100) {
-		$result = [];
-
-		$params = json_encode([
+	public function getTasks($limit = 100, $item = 0) {
+		$params = [
 			"limit" => $limit,
-			/*"pageAfter" => [
-				"contentType" => "Task",
-				"id" => 1057029
-			]*/
-		]);
-
-		$headers = [
-			"AUTHORIZATION: Bearer {$this->token}"
 		];
 
-		$link = curl_init("https://gaps2.megaplan.ru/api/v3/task?{$params}");
+		if ($item) $params["pageAfter"] = ["contentType" => "Task","id" => $item];
 
-		curl_setopt($link, CURLOPT_RETURNTRANSFER, 1);
-		curl_setopt($link, CURLOPT_HTTPHEADER, $headers);
+		$params = json_encode($params);
+		print_r($params);
 
-		$output = curl_exec($link);
-
-		curl_close($link);
-		print_r($output);
-		$result = json_decode($output, true)["data"];
+		$result = $this->requestExec("/api/v3/task?{$params}");
 
 		return $result;
 	}
 
 	public function getTask($id) {
-		$result = [];
+		$result = $this->requestExec("/api/v3/task/{$id}");
+		return $result;
+	}
 
-		$headers = [
-			"AUTHORIZATION: Bearer {$this->token}"
+	public function getTaskInfo($id) {
+		$task = $this->getTask($id);
+		$deadline = $task["deadline"]["day"] ? str_pad($task["deadline"]["day"], 2, '0', STR_PAD_LEFT) . "." . str_pad($task["deadline"]["month"] + 1, 2, '0', STR_PAD_LEFT) . "." . $task["deadline"]["year"] : "";
+		$result = [
+			"ID"       => $task["id"],
+			"NAME"     => $task["name"],
+			"TEXT"     => $task["statement"],
+			"STATUS"   => $task["status"],
+			"DEADLINE" => $deadline,
+			"USERS"    => [
+				"OWNER"       => $task["owner"]["name"],
+				"RESPONSIBLE" => $task["responsible"]["name"],
+			]
 		];
 
-		$link = curl_init("https://gaps2.megaplan.ru/api/v3/task/{$id}");
+		switch ($task["status"]) {
+			case "done":
+				$result["STATUS"] = 5;
+				break;
+			case "accepted":
+				$result["STATUS"] = 3;
+				break;
+			default:
+				$result["STATUS"] = -2;
+				break;
+		}
 
-		curl_setopt($link, CURLOPT_RETURNTRANSFER, 1);
-		curl_setopt($link, CURLOPT_HTTPHEADER, $headers);
+		$taskUsers = [
+			$task["owner"]["id"]       => $task["owner"]["name"],
+			$task["responsible"]["id"] => $task["responsible"]["name"],
+		];
 
-		$output = curl_exec($link);
+		if ($task["executors"]) {
+			foreach ($task["executors"] as $executor) {
+				$result["USERS"]["EXECUTORS"][$executor["id"]] = $executor["name"];
+				$taskUsers[$executor["id"]] = $executor["name"];
+			}
+		}
 
-		curl_close($link);
-		print_r($output);
-		$result = json_decode($output, true)["data"];
+		if ($task["auditors"]) {
+			foreach ($task["auditors"] as $auditor) {
+				$result["USERS"]["AUDITORS"][$auditor["id"]] = $auditor["name"];
+				$taskUsers[$auditor["id"]] = $auditor["name"];
+			}
+		}
 
+		if ($task["parents"]) {
+			$result["PROJECT"] = "{$task["parents"][0]["name"]} (Мегаплан)";
+		}
+		if ($task["comments"]) {
+			$comments = array_reverse($this->getComments($id));
+			foreach ($comments as $comment) {
+				$result["COMMENTS"][] = [
+					"TEXT"  => $comment["content"],
+					"OWNER" => $taskUsers[$comment["owner"]["id"]],
+					"DATE"  => $comment["timeCreated"]["value"],
+				];
+			}
+		}
+		return $result;
+	}
+
+	public function getUser($id) {
+
+	}
+
+	public function getComments($id) {
+		$result = $this->requestExec("/api/v3/task/{$id}/comments");
 		return $result;
 	}
 
@@ -109,48 +164,16 @@ class MegaplanAPI {
 	 * @return mixed
 	 */
 	public function getProjects($limit = 100) {
-		$result = [];
-
 		$params = json_encode([
 			"limit" => $limit,
 		]);
 
-		$headers = [
-			"AUTHORIZATION: Bearer {$this->token}"
-		];
-
-		$link = curl_init("https://gaps2.megaplan.ru/api/v3/project?{$params}");
-
-		curl_setopt($link, CURLOPT_RETURNTRANSFER, 1);
-		curl_setopt($link, CURLOPT_HTTPHEADER, $headers);
-
-		$output = curl_exec($link);
-
-		curl_close($link);
-
-		$result = json_decode($output, true)["data"];
-
+		$result = $this->requestExec("/api/v3/project?{$params}");
 		return $result;
 	}
 
 	public function getProject($id) {
-		$result = [];
-
-		$headers = [
-			"AUTHORIZATION: Bearer {$this->token}"
-		];
-
-		$link = curl_init("https://gaps2.megaplan.ru/api/v3/project/{$id}");
-
-		curl_setopt($link, CURLOPT_RETURNTRANSFER, 1);
-		curl_setopt($link, CURLOPT_HTTPHEADER, $headers);
-
-		$output = curl_exec($link);
-
-		curl_close($link);
-
-		$result = json_decode($output, true)["data"];
-
+		$result = $this->requestExec("/api/v3/project/{$id}");
 		return $result;
 	}
 
@@ -168,51 +191,19 @@ class MegaplanAPI {
 	public function getProjectInfo($id) {
 		$result = [];
 		$result["ID"] = $this->getProject($id)["id"];
-		$result["NAME"] = $this->getProject($id)["name"];
+		$result["NAME"] = "{$this->getProject($id)["name"]} (Мегаплан)";
 		$result["USERS"] = $this->getProjectUsers($id);
 
 		return $result;
 	}
 
 	public function getProjectAuditors($id) {
-		$result = [];
-
-		$headers = [
-			"AUTHORIZATION: Bearer {$this->token}"
-		];
-
-		$link = curl_init("https://gaps2.megaplan.ru/api/v3/project/{$id}/auditors");
-
-		curl_setopt($link, CURLOPT_RETURNTRANSFER, 1);
-		curl_setopt($link, CURLOPT_HTTPHEADER, $headers);
-
-		$output = curl_exec($link);
-
-		curl_close($link);
-
-		$result = json_decode($output, true)["data"];
-
+		$result = $this->requestExec("/api/v3/project/{$id}/auditors");
 		return $result;
 	}
 
 	public function getProjectExecutors($id) {
-		$result = [];
-
-		$headers = [
-			"AUTHORIZATION: Bearer {$this->token}"
-		];
-
-		$link = curl_init("https://gaps2.megaplan.ru/api/v3/project/{$id}/executors");
-
-		curl_setopt($link, CURLOPT_RETURNTRANSFER, 1);
-		curl_setopt($link, CURLOPT_HTTPHEADER, $headers);
-
-		$output = curl_exec($link);
-
-		curl_close($link);
-
-		$result = json_decode($output, true)["data"];
-
+		$result = $this->requestExec("/api/v3/project/{$id}/executors");
 		return $result;
 	}
 }
