@@ -67,15 +67,15 @@ class MegaplanAPI {
 	 * @param int $limit
 	 * @return mixed
 	 */
-	public function getTasks($limit = 100, $item = 0) {
+	public function getTasks($limit = 100, $item = false, $filter = false) {
 		$params = [
 			"limit" => $limit,
 		];
 
-		if ($item) $params["pageAfter"] = ["contentType" => "Task","id" => $item];
+		if ($item) $params["pageAfter"] = ["contentType" => "Task", "id" => $item];
+		if ($filter) $params["filter"] = ["id" => $filter];
 
 		$params = json_encode($params);
-		print_r($params);
 
 		$result = $this->requestExec("/api/v3/task?{$params}");
 
@@ -92,17 +92,18 @@ class MegaplanAPI {
 		$deadline = $task["deadline"]["day"] ? str_pad($task["deadline"]["day"], 2, '0', STR_PAD_LEFT) . "." . str_pad($task["deadline"]["month"] + 1, 2, '0', STR_PAD_LEFT) . "." . $task["deadline"]["year"] : "";
 		$result = [
 			"ID"       => $task["id"],
-			"NAME"     => $task["name"],
+			"NAME"     => "{$task["name"]} (Мегаплан)",
 			"TEXT"     => $task["statement"],
 			"STATUS"   => $task["status"],
 			"DEADLINE" => $deadline,
 			"USERS"    => [
 				"OWNER"       => $task["owner"]["name"],
-				"RESPONSIBLE" => $task["responsible"]["name"],
+				"RESPONSIBLE" => $task["responsible"]["name"] ?? $task["owner"]["name"],
 			]
 		];
 
 		switch ($task["status"]) {
+			case "complated":
 			case "done":
 				$result["STATUS"] = 5;
 				break;
@@ -113,10 +114,10 @@ class MegaplanAPI {
 				$result["STATUS"] = -2;
 				break;
 		}
-
+		
 		$taskUsers = [
 			$task["owner"]["id"]       => $task["owner"]["name"],
-			$task["responsible"]["id"] => $task["responsible"]["name"],
+			$task["responsible"]["id"] => $task["responsible"]["name"] ?? $task["owner"]["name"],
 		];
 
 		if ($task["executors"]) {
@@ -147,10 +148,6 @@ class MegaplanAPI {
 			}
 		}
 		return $result;
-	}
-
-	public function getUser($id) {
-
 	}
 
 	public function getComments($id) {
